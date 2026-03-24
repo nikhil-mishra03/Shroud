@@ -1,6 +1,7 @@
 package masker
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -105,5 +106,58 @@ func TestNoFalsePositives(t *testing.T) {
 	}
 	if len(events) != 0 {
 		t.Errorf("unexpected mask events: %+v", events)
+	}
+}
+
+func TestMaskLowercaseCredentials(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"password", "password=ghostrider1221"},
+		{"passwd", "passwd=hunter2"},
+		{"secret", "secret=abc123"},
+		{"api_key", "api_key=xyz789"},
+		{"token", "token=mytoken"},
+		{"auth", "auth=mysecrettoken"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New()
+			out, events := m.Mask(tc.input)
+			if strings.Contains(out, tc.input) {
+				t.Errorf("credential not masked: %s", out)
+			}
+			if len(events) != 1 || events[0].Entity != EntityCred {
+				t.Errorf("expected 1 CRED event, got %+v", events)
+			}
+			// Key name must be preserved
+			key := strings.SplitN(tc.input, "=", 2)[0]
+			if !strings.HasPrefix(out, key+"=") {
+				t.Errorf("key name not preserved in output: %s", out)
+			}
+		})
+	}
+}
+
+func TestMaskEnvVarInsideEscapedJSONPreservesValidJSON(t *testing.T) {
+	m := New()
+	input := `{"text":"set DEBUG=1\\\", \\\"when claude stops show X"}`
+
+	out, events := m.Mask(input)
+
+	if len(events) != 1 || events[0].Entity != EntityEnvVar {
+		t.Fatalf("expected 1 env var event, got %+v", events)
+	}
+	if !strings.Contains(out, `DEBUG=[ENV_1]\\\", \\\"when`) {
+		t.Fatalf("masked output did not preserve escaped quote boundary: %s", out)
+	}
+
+	var decoded map[string]string
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("masked output is not valid JSON: %v\n%s", err, out)
+	}
+	if !strings.Contains(decoded["text"], `DEBUG=[ENV_1]`) {
+		t.Fatalf("decoded text missing masked env var: %q", decoded["text"])
 	}
 }

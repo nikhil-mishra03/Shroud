@@ -15,6 +15,7 @@ const (
 	EntityKey    EntityType = "KEY"
 	EntityToken  EntityType = "TOKEN"
 	EntityEnvVar EntityType = "ENV"
+	EntityCred   EntityType = "CRED"
 )
 
 type MaskEvent struct {
@@ -24,10 +25,11 @@ type MaskEvent struct {
 }
 
 type Masker struct {
-	mu       sync.Mutex
-	mappings map[string]string // placeholder -> original
-	counters map[EntityType]int
-	rules    []*rule
+	mu         sync.Mutex
+	mappings   map[string]string // placeholder -> original
+	reverseMap map[string]string // original -> placeholder
+	counters   map[EntityType]int
+	rules      []*rule
 }
 
 type rule struct {
@@ -37,15 +39,17 @@ type rule struct {
 
 func New() *Masker {
 	m := &Masker{
-		mappings: make(map[string]string),
-		counters: make(map[EntityType]int),
+		mappings:   make(map[string]string),
+		reverseMap: make(map[string]string),
+		counters:   make(map[EntityType]int),
 	}
 	m.rules = []*rule{
 		{EntityEmail, regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)},
 		{EntityKey, regexp.MustCompile(`(?i)(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-._~+/]+=*|ghp_[a-zA-Z0-9]{36}|xox[baprs]-[a-zA-Z0-9\-]+)`)},
 		{EntityToken, regexp.MustCompile(`eyJ[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+`)},
 		{EntityIP, regexp.MustCompile(`\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b`)},
-		{EntityEnvVar, regexp.MustCompile(`\b([A-Z_]{2,})=([^\s"'\]})[\x60]+)`)},
+		{EntityEnvVar, regexp.MustCompile(`\b([A-Z_]{2,})=([^\s"'\]}` + "`" + `\\]+)`)},
+		{EntityCred, regexp.MustCompile(`\b(password|passwd|secret|api_key|auth|token)=(\S+)`)},
 	}
 	return m
 }
@@ -63,19 +67,27 @@ func (m *Masker) Mask(text string) (string, []MaskEvent) {
 	seen := make(map[string]string)
 
 	for _, r := range m.rules {
-		if r.entityType == EntityEnvVar {
+		// Rules with two capture groups (key=value format): mask only the value,
+		// preserving the key name in the output.
+		if r.entityType == EntityEnvVar || r.entityType == EntityCred {
+			et := r.entityType
 			result = r.pattern.ReplaceAllStringFunc(result, func(match string) string {
 				subs := r.pattern.FindStringSubmatch(match)
 				if len(subs) < 3 {
 					return match
 				}
 				val := subs[2]
+				// Skip if the value is already a Shroud placeholder to avoid
+				// double-masking when rules run sequentially on the same string.
+				if strings.HasPrefix(val, "[") && strings.HasSuffix(val, "]") {
+					return match
+				}
 				if ph, ok := seen[val]; ok {
 					return subs[1] + "=" + ph
 				}
-				ph := m.placeholderLocked(EntityEnvVar, val)
+				ph := m.placeholderLocked(et, val)
 				seen[val] = ph
-				events = append(events, MaskEvent{EntityEnvVar, ph, val})
+				events = append(events, MaskEvent{et, ph, val})
 				return subs[1] + "=" + ph
 			})
 			continue
@@ -119,14 +131,12 @@ func (m *Masker) Mappings() map[string]string {
 }
 
 func (m *Masker) placeholderLocked(t EntityType, original string) string {
-	// Check if already mapped
-	for ph, orig := range m.mappings {
-		if orig == original {
-			return ph
-		}
+	if ph, ok := m.reverseMap[original]; ok {
+		return ph
 	}
 	m.counters[t]++
 	ph := fmt.Sprintf("[%s_%d]", t, m.counters[t])
 	m.mappings[ph] = original
+	m.reverseMap[original] = ph
 	return ph
 }

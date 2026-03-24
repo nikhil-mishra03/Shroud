@@ -47,11 +47,14 @@ var statusCmd = &cobra.Command{
 }
 
 var uiFlag bool
+var debugHTTPLogFlag bool
 var debugHeadersFlag bool
 
 func init() {
 	runCmd.Flags().BoolVar(&uiFlag, "ui", false, "Open live dashboard in browser")
-	runCmd.Flags().BoolVar(&debugHeadersFlag, "debug-headers", false, "Log incoming provider/auth headers with secrets redacted")
+	runCmd.Flags().BoolVar(&debugHTTPLogFlag, "debug-http-log", false, "Write verbose per-session proxy request/response logs")
+	runCmd.Flags().BoolVar(&debugHeadersFlag, "debug-headers", false, "Deprecated alias for --debug-http-log")
+	runCmd.Flags().MarkDeprecated("debug-headers", "use --debug-http-log instead")
 	rootCmd.AddCommand(runCmd, logsCmd, statusCmd)
 }
 
@@ -66,6 +69,15 @@ func runTool(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("session logger: %w", err)
 	}
 	defer logger.Close()
+
+	enableProxyDebugLog := debugHTTPLogFlag || debugHeadersFlag
+	var proxyDebugLog *session.ProxyDebugLogger
+	if enableProxyDebugLog {
+		proxyDebugLog, err = logger.EnableProxyDebugLog()
+		if err != nil {
+			return fmt.Errorf("proxy debug log: %w", err)
+		}
+	}
 
 	// UI hub: only created when --ui is set. The proxy holds a nil hub otherwise
 	// and skips all emit calls — zero overhead on the hot path.
@@ -104,14 +116,14 @@ func runTool(cmd *cobra.Command, args []string) error {
 		"openai":    envOrDefault("OPENAI_BASE_URL", "https://api.openai.com/v1"),
 	}
 
-	openAIProxy := proxy.New(m, logger, hub, upstreams, "openai", debugHeadersFlag)
+	openAIProxy := proxy.New(m, logger, proxyDebugLog, hub, upstreams, "openai")
 	openAIAddr, err := openAIProxy.Start()
 	if err != nil {
 		return fmt.Errorf("openai proxy: %w", err)
 	}
 	defer openAIProxy.Stop()
 
-	anthropicProxy := proxy.New(m, logger, hub, upstreams, "anthropic", debugHeadersFlag)
+	anthropicProxy := proxy.New(m, logger, proxyDebugLog, hub, upstreams, "anthropic")
 	anthropicAddr, err := anthropicProxy.Start()
 	if err != nil {
 		return fmt.Errorf("anthropic proxy: %w", err)
@@ -119,31 +131,43 @@ func runTool(cmd *cobra.Command, args []string) error {
 	defer anthropicProxy.Stop()
 
 	fmt.Fprintf(os.Stderr, "🛡  Shroud active — secrets will be masked\n")
+	if enableProxyDebugLog {
+		fmt.Fprintf(os.Stderr, "🪵 Proxy debug log: %s\n", logger.ProxyLogPath())
+	}
 	if uiFlag {
 		fmt.Fprintf(os.Stderr, "🌐 Dashboard: %s\n", uiAddr)
 		openBrowser(uiAddr)
 	}
 
-	// Inject provider-specific proxy addresses into the child environment.
-	// Tools choose the provider-specific env var they already understand.
 	env := os.Environ()
-	env = append(env,
-		"ANTHROPIC_BASE_URL="+anthropicAddr,
-		"OPENAI_BASE_URL="+openAIAddr,
-		"SHROUD_ANTHROPIC_PROXY="+anthropicAddr,
-		"SHROUD_OPENAI_PROXY="+openAIAddr,
-	)
-
-	childCmdArgs := toolArgs
 	if isCodexTool(tool) {
+		// Preserve Codex's native auth path and route traffic via a forward proxy
+		// instead of rewriting the model endpoint.
 		env = withoutEnv(env, "OPENAI_BASE_URL")
-		childCmdArgs = append([]string{
-			"-c",
-			fmt.Sprintf("openai_base_url=%q", openAIAddr),
-		}, toolArgs...)
+		env = withoutEnv(env, "ANTHROPIC_BASE_URL")
+		env = append(env,
+			"HTTPS_PROXY="+openAIAddr,
+			"HTTP_PROXY="+openAIAddr,
+			"ALL_PROXY="+openAIAddr,
+			"https_proxy="+openAIAddr,
+			"http_proxy="+openAIAddr,
+			"all_proxy="+openAIAddr,
+			"NO_PROXY=127.0.0.1,localhost",
+			"no_proxy=127.0.0.1,localhost",
+			"SHROUD_FORWARD_PROXY="+openAIAddr,
+		)
+	} else {
+		// Inject provider-specific proxy addresses into the child environment.
+		// Tools choose the provider-specific env var they already understand.
+		env = append(env,
+			"ANTHROPIC_BASE_URL="+anthropicAddr,
+			"OPENAI_BASE_URL="+openAIAddr,
+			"SHROUD_ANTHROPIC_PROXY="+anthropicAddr,
+			"SHROUD_OPENAI_PROXY="+openAIAddr,
+		)
 	}
 
-	child := exec.Command(tool, childCmdArgs...)
+	child := exec.Command(tool, toolArgs...)
 	child.Env = env
 	child.Stdin = os.Stdin
 	child.Stdout = os.Stdout
@@ -181,6 +205,9 @@ func runTool(cmd *cobra.Command, args []string) error {
 		}
 	}
 	fmt.Fprintf(os.Stderr, "📄 Session log: %s\n", logger.Path())
+	if enableProxyDebugLog {
+		fmt.Fprintf(os.Stderr, "🪵 Proxy debug log: %s\n", logger.ProxyLogPath())
+	}
 
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -192,7 +219,7 @@ func runTool(cmd *cobra.Command, args []string) error {
 }
 
 func showLogs(cmd *cobra.Command, args []string) error {
-	dir := filepath.Join(os.Getenv("HOME"), ".shroud", "sessions")
+	dir := session.LogDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("no sessions found at %s", dir)
@@ -261,7 +288,7 @@ func showLogs(cmd *cobra.Command, args []string) error {
 }
 
 func showStatus(cmd *cobra.Command, args []string) error {
-	dir := filepath.Join(os.Getenv("HOME"), ".shroud", "sessions")
+	dir := session.LogDir()
 	entries, _ := os.ReadDir(dir)
 	fmt.Printf("🛡  Shroud\n")
 	fmt.Printf("   Sessions logged: %d\n", len(entries))
@@ -305,7 +332,7 @@ func isCodexTool(tool string) bool {
 
 func withoutEnv(env []string, key string) []string {
 	prefix := key + "="
-	filtered := env[:0]
+	filtered := make([]string, 0, len(env))
 	for _, entry := range env {
 		if strings.HasPrefix(entry, prefix) {
 			continue

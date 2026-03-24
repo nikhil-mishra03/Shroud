@@ -5,6 +5,7 @@
 *.so
 *.dylib
 shroud
+logs/
 
 # Test binary, built with `go test -c`
 *.test
@@ -33,7 +34,7 @@ Thumbs.db
 .env.*
 
 # Vendor directory (if not committing deps)
-# vendor/
+vendor/
 
 # Debug
 __debug_bin*
