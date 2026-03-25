@@ -180,6 +180,23 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Emit request_body event so the UI can show the masked outbound prompt.
+	// Emitted for all text/JSON requests — even ones with no secrets masked —
+	// so users can see Shroud processed every request (not just masked ones).
+	// Clean requests show as a dimmed row; masked ones expand with highlights.
+	if shouldLogBody(r.Header.Get("Content-Type")) {
+		uiBody := masked
+		if len(uiBody) > maxLoggedStreamAggregateBytes {
+			uiBody = uiBody[:maxLoggedStreamAggregateBytes] + " [TRUNCATED]"
+		}
+		p.emit(ui.Event{
+			Type:        "request_body",
+			RequestID:   requestID,
+			Body:        uiBody,
+			MaskedCount: len(events),
+		})
+	}
+
 	isStreaming := streamRe.MatchString(masked)
 
 	p.logEntry(

@@ -15,6 +15,7 @@ import (
 
 	"github.com/nimishr2/shroud/internal/masker"
 	"github.com/nimishr2/shroud/internal/session"
+	"github.com/nimishr2/shroud/internal/ui"
 )
 
 func TestResolveUpstreamUsesDefaultProvider(t *testing.T) {
@@ -283,6 +284,119 @@ func TestProxyDebugLogConnectMetadataOnly(t *testing.T) {
 	if !strings.Contains(logText, "Bearer sha256:") {
 		t.Fatalf("proxy log did not redact CONNECT auth header:\n%s", logText)
 	}
+}
+
+// collectEvents runs a single request through the proxy and returns all events
+// published to the hub.
+func collectEvents(t *testing.T, body, contentType string) []ui.Event {
+	t.Helper()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"ok":true}`)
+	}))
+	defer upstream.Close()
+
+	hub := ui.NewHub()
+	t.Setenv("SHROUD_LOG_DIR", t.TempDir())
+	logger, err := session.NewLogger("events-test")
+	if err != nil {
+		t.Fatalf("new logger: %v", err)
+	}
+	defer logger.Close()
+
+	p := New(masker.New(), logger, nil, hub, map[string]string{"openai": upstream.URL}, "openai")
+	req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-Shroud-Upstream", upstream.URL)
+	rr := httptest.NewRecorder()
+	p.handle(rr, req)
+
+	var events []ui.Event
+	for i := 0; i < hub.ReplayLen(); i++ {
+		events = append(events, hub.Replay()[i])
+	}
+	return events
+}
+
+func TestProxyEmitsRequestBodyEvent(t *testing.T) {
+	events := collectEvents(t, `{"input":"john@example.com"}`, "application/json")
+	var found *ui.Event
+	for i := range events {
+		if events[i].Type == "request_body" {
+			found = &events[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("no request_body event emitted")
+	}
+	if !strings.Contains(found.Body, "[EMAIL_1]") {
+		t.Errorf("request_body.Body = %q, want masked placeholder", found.Body)
+	}
+	if found.MaskedCount != 1 {
+		t.Errorf("request_body.MaskedCount = %d, want 1", found.MaskedCount)
+	}
+}
+
+func TestProxyRequestBodyNoSecretLeak(t *testing.T) {
+	const secret = "john@example.com"
+	events := collectEvents(t, `{"input":"`+secret+`"}`, "application/json")
+	for _, e := range events {
+		if e.Type == "request_body" && strings.Contains(e.Body, secret) {
+			t.Errorf("request_body.Body leaked raw secret %q", secret)
+		}
+	}
+}
+
+func TestProxyEmitsRequestBodyForCleanRequest(t *testing.T) {
+	events := collectEvents(t, `{"input":"nothing sensitive here"}`, "application/json")
+	var found *ui.Event
+	for i := range events {
+		if events[i].Type == "request_body" {
+			found = &events[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("no request_body event for clean request — UI would show false silence")
+	}
+	if found.MaskedCount != 0 {
+		t.Errorf("clean request: MaskedCount = %d, want 0", found.MaskedCount)
+	}
+}
+
+func TestProxyRequestBodyTruncatesAt1MB(t *testing.T) {
+	// Body exceeds 1MB — should be truncated with [TRUNCATED] suffix.
+	large := `{"input":"` + strings.Repeat("a", maxLoggedStreamAggregateBytes+64) + `"}`
+	events := collectEvents(t, large, "application/json")
+	for _, e := range events {
+		if e.Type == "request_body" {
+			if len(e.Body) > maxLoggedStreamAggregateBytes+len(" [TRUNCATED]") {
+				t.Errorf("Body not truncated: len=%d", len(e.Body))
+			}
+			if !strings.HasSuffix(e.Body, " [TRUNCATED]") {
+				t.Errorf("Body does not end with [TRUNCATED]: %q", e.Body[max(0, len(e.Body)-20):])
+			}
+			return
+		}
+	}
+	t.Fatal("no request_body event emitted for large body")
+}
+
+func TestProxyRequestBodySkipsNonTextContentType(t *testing.T) {
+	events := collectEvents(t, "binarydata", "application/octet-stream")
+	for _, e := range events {
+		if e.Type == "request_body" {
+			t.Error("request_body emitted for non-text content type")
+		}
+	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func newTestLogger(t *testing.T) (*session.Logger, *session.ProxyDebugLogger) {

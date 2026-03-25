@@ -21,6 +21,12 @@ type Event struct {
 	Placeholder string `json:"placeholder,omitempty"`
 	RequestID   string `json:"request_id,omitempty"`
 	Tool        string `json:"tool,omitempty"`
+	// Body is the masked outbound request body, populated only for
+	// request_body events. Never contains original secret values.
+	Body        string `json:"body,omitempty"`
+	// MaskedCount is the number of secrets masked in this request.
+	// Zero means the request was clean (no secrets detected).
+	MaskedCount int    `json:"masked_count,omitempty"`
 }
 
 // Hub manages WebSocket clients and broadcasts events.
@@ -158,6 +164,15 @@ func (h *Hub) ReplayLen() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.replay)
+}
+
+// Replay returns a copy of the current replay buffer.
+func (h *Hub) Replay() []Event {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	out := make([]Event, len(h.replay))
+	copy(out, h.replay)
+	return out
 }
 
 // MarshalEvent is a helper to serialise an event to JSON for logging.
