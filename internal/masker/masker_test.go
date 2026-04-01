@@ -140,6 +140,32 @@ func TestMaskLowercaseCredentials(t *testing.T) {
 	}
 }
 
+// TestCredRegexDoesNotConsumeJSONStructure is a regression test for the bug
+// where the CRED pattern used \S+ and consumed past JSON closing quotes,
+// producing invalid JSON that the upstream API rejected with a 400 error.
+func TestCredRegexDoesNotConsumeJSONStructure(t *testing.T) {
+	m := New()
+	// JSON where the cred value is immediately followed by an escaped quote.
+	// \S+ would eat past the \" and the closing ", breaking the JSON.
+	input := `{"msg":"password=hunter2","other":"value"}`
+
+	out, events := m.Mask(input)
+
+	if len(events) == 0 {
+		t.Fatal("expected cred to be masked")
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("masked output is not valid JSON: %v\n%s", err, out)
+	}
+	if strings.Contains(decoded["msg"], "hunter2") {
+		t.Error("raw cred value leaked into masked output")
+	}
+	if decoded["other"] != "value" {
+		t.Errorf("adjacent field corrupted: %q", decoded["other"])
+	}
+}
+
 func TestMaskEnvVarInsideEscapedJSONPreservesValidJSON(t *testing.T) {
 	m := New()
 	input := `{"text":"set DEBUG=1\\\", \\\"when claude stops show X"}`

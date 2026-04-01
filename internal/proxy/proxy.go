@@ -33,6 +33,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nimishr2/shroud/internal/extract"
 	"github.com/nimishr2/shroud/internal/masker"
 	"github.com/nimishr2/shroud/internal/session"
 	"github.com/nimishr2/shroud/internal/ui"
@@ -170,30 +171,50 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 
 	// Mask outbound body.
 	masked, events := p.masker.Mask(string(body))
+	var criticalCount, moderateCount, lowCount int
 	for _, e := range events {
 		p.logger.LogMask(string(e.Entity), e.Placeholder, requestID)
+		sev := masker.Severity(e.Entity)
+		switch sev {
+		case "critical":
+			criticalCount++
+		case "moderate":
+			moderateCount++
+		default:
+			lowCount++
+		}
 		p.emit(ui.Event{
 			Type:        "mask_event",
 			Entity:      string(e.Entity),
 			Placeholder: e.Placeholder,
+			Severity:    sev,
 			RequestID:   requestID,
 		})
 	}
 
-	// Emit request_body event so the UI can show the masked outbound prompt.
-	// Emitted for all text/JSON requests — even ones with no secrets masked —
-	// so users can see Shroud processed every request (not just masked ones).
-	// Clean requests show as a dimmed row; masked ones expand with highlights.
+	// Emit request_body event so the UI can show a structured summary of the
+	// masked outbound request. We parse the JSON to extract only the user
+	// message content — system prompts and tool definitions are counted but
+	// not sent to the browser.
 	if shouldLogBody(r.Header.Get("Content-Type")) {
-		uiBody := masked
-		if len(uiBody) > maxLoggedStreamAggregateBytes {
-			uiBody = uiBody[:maxLoggedStreamAggregateBytes] + " [TRUNCATED]"
+		summary := extract.Summarize(masked)
+		userContent := summary.UserContent
+		if len(userContent) > maxLoggedStreamAggregateBytes {
+			userContent = userContent[:maxLoggedStreamAggregateBytes] + " [TRUNCATED]"
 		}
 		p.emit(ui.Event{
-			Type:        "request_body",
-			RequestID:   requestID,
-			Body:        uiBody,
-			MaskedCount: len(events),
+			Type:          "request_body",
+			RequestID:     requestID,
+			MaskedCount:   len(events),
+			CriticalCount: criticalCount,
+			ModerateCount: moderateCount,
+			LowCount:      lowCount,
+			UserContent:   userContent,
+			Model:         summary.Model,
+			SystemLen:     summary.SystemLen,
+			UserLen:       summary.UserLen,
+			ToolCount:     summary.ToolCount,
+			MessageCount:  summary.MessageCount,
 		})
 	}
 

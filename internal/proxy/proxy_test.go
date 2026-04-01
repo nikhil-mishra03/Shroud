@@ -319,7 +319,9 @@ func collectEvents(t *testing.T, body, contentType string) []ui.Event {
 }
 
 func TestProxyEmitsRequestBodyEvent(t *testing.T) {
-	events := collectEvents(t, `{"input":"john@example.com"}`, "application/json")
+	// Use proper messages format so extract.Summarize() populates UserContent.
+	body := `{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"email john@example.com please"}]}`
+	events := collectEvents(t, body, "application/json")
 	var found *ui.Event
 	for i := range events {
 		if events[i].Type == "request_body" {
@@ -330,8 +332,8 @@ func TestProxyEmitsRequestBodyEvent(t *testing.T) {
 	if found == nil {
 		t.Fatal("no request_body event emitted")
 	}
-	if !strings.Contains(found.Body, "[EMAIL_1]") {
-		t.Errorf("request_body.Body = %q, want masked placeholder", found.Body)
+	if !strings.Contains(found.UserContent, "[EMAIL_1]") {
+		t.Errorf("request_body.UserContent = %q, want masked placeholder", found.UserContent)
 	}
 	if found.MaskedCount != 1 {
 		t.Errorf("request_body.MaskedCount = %d, want 1", found.MaskedCount)
@@ -340,10 +342,16 @@ func TestProxyEmitsRequestBodyEvent(t *testing.T) {
 
 func TestProxyRequestBodyNoSecretLeak(t *testing.T) {
 	const secret = "john@example.com"
-	events := collectEvents(t, `{"input":"`+secret+`"}`, "application/json")
+	body := `{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"email ` + secret + ` please"}]}`
+	events := collectEvents(t, body, "application/json")
 	for _, e := range events {
-		if e.Type == "request_body" && strings.Contains(e.Body, secret) {
-			t.Errorf("request_body.Body leaked raw secret %q", secret)
+		if e.Type == "request_body" {
+			if strings.Contains(e.UserContent, secret) {
+				t.Errorf("request_body.UserContent leaked raw secret %q", secret)
+			}
+			if strings.Contains(e.Body, secret) {
+				t.Errorf("request_body.Body leaked raw secret %q", secret)
+			}
 		}
 	}
 }
@@ -366,16 +374,18 @@ func TestProxyEmitsRequestBodyForCleanRequest(t *testing.T) {
 }
 
 func TestProxyRequestBodyTruncatesAt1MB(t *testing.T) {
-	// Body exceeds 1MB — should be truncated with [TRUNCATED] suffix.
-	large := `{"input":"` + strings.Repeat("a", maxLoggedStreamAggregateBytes+64) + `"}`
-	events := collectEvents(t, large, "application/json")
+	// UserContent exceeds 1MB — should be truncated with [TRUNCATED] suffix.
+	largeContent := strings.Repeat("a", maxLoggedStreamAggregateBytes+64)
+	body := `{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"` + largeContent + `"}]}`
+	events := collectEvents(t, body, "application/json")
 	for _, e := range events {
 		if e.Type == "request_body" {
-			if len(e.Body) > maxLoggedStreamAggregateBytes+len(" [TRUNCATED]") {
-				t.Errorf("Body not truncated: len=%d", len(e.Body))
+			if len(e.UserContent) > maxLoggedStreamAggregateBytes+len(" [TRUNCATED]") {
+				t.Errorf("UserContent not truncated: len=%d", len(e.UserContent))
 			}
-			if !strings.HasSuffix(e.Body, " [TRUNCATED]") {
-				t.Errorf("Body does not end with [TRUNCATED]: %q", e.Body[max(0, len(e.Body)-20):])
+			if !strings.HasSuffix(e.UserContent, " [TRUNCATED]") {
+				tail := e.UserContent[max(0, len(e.UserContent)-20):]
+				t.Errorf("UserContent does not end with [TRUNCATED]: %q", tail)
 			}
 			return
 		}

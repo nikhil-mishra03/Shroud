@@ -22,6 +22,9 @@ const DashboardHTML = `<!DOCTYPE html>
     --blue: #58a6ff;
     --purple: #bc8cff;
     --orange: #ffa657;
+    --red-dim: #3d1a1a;
+    --yellow-dim: #2d2410;
+    --grey-dim: #1c2128;
   }
   body {
     background: var(--bg);
@@ -62,7 +65,7 @@ const DashboardHTML = `<!DOCTYPE html>
   main {
     flex: 1;
     display: grid;
-    grid-template-columns: 240px 1fr 280px;
+    grid-template-columns: 220px 1fr 260px;
     overflow: hidden;
   }
   .panel {
@@ -90,38 +93,67 @@ const DashboardHTML = `<!DOCTYPE html>
   .panel-body::-webkit-scrollbar { width: 6px; }
   .panel-body::-webkit-scrollbar-track { background: transparent; }
   .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .empty-msg { color: var(--dim); font-style: italic; font-size: 12px; }
 
-  /* Left panel: type aggregates */
+  /* ── Left panel: severity-grouped protection summary ── */
+  .sev-group {
+    margin-bottom: 14px;
+  }
+  .sev-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .sev-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .sev-dot.critical { background: var(--red); }
+  .sev-dot.moderate { background: var(--yellow); }
+  .sev-dot.low      { background: var(--dim); }
+  .sev-label.critical { color: var(--red); }
+  .sev-label.moderate { color: var(--yellow); }
+  .sev-label.low      { color: var(--dim); }
+  .sev-count { margin-left: auto; font-size: 13px; font-weight: 700; }
+  .sev-count.critical { color: var(--red); }
+  .sev-count.moderate { color: var(--yellow); }
+  .sev-count.low      { color: var(--dim); }
+
   .type-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 12px;
+    gap: 7px;
+    margin-bottom: 5px;
+    padding-left: 15px;
   }
-  .type-icon { font-size: 14px; width: 20px; text-align: center; flex-shrink: 0; }
-  .type-label { width: 44px; font-size: 11px; font-weight: 700; color: var(--dim); flex-shrink: 0; }
-  .type-bar-wrap { flex: 1; background: #21262d; border-radius: 3px; height: 5px; overflow: hidden; }
+  .type-icon { font-size: 12px; width: 18px; text-align: center; flex-shrink: 0; }
+  .type-label { font-size: 11px; color: var(--dim); flex: 1; }
+  .type-bar-wrap { width: 40px; background: #21262d; border-radius: 3px; height: 4px; overflow: hidden; }
   .type-bar { height: 100%; border-radius: 3px; width: 0; transition: width 0.3s ease; }
   .bar-EMAIL { background: var(--blue); }
   .bar-KEY   { background: var(--red); }
-  .bar-IP    { background: var(--purple); }
+  .bar-IP    { background: var(--dim); }
   .bar-ENV   { background: var(--green); }
   .bar-TOKEN { background: var(--yellow); }
   .bar-CRED  { background: var(--orange); }
-  .type-count { font-size: 12px; font-weight: 700; color: var(--text); width: 24px; text-align: right; flex-shrink: 0; }
+  .type-count { font-size: 11px; font-weight: 700; color: var(--text); width: 20px; text-align: right; flex-shrink: 0; }
+
   .total-row {
-    margin-top: 8px;
-    padding-top: 12px;
+    margin-top: 10px;
+    padding-top: 10px;
     border-top: 1px solid var(--border);
     display: flex;
     justify-content: space-between;
     align-items: baseline;
   }
   .total-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
-  .total-value { font-size: 24px; font-weight: 700; color: var(--green); }
-  .empty-msg { color: var(--dim); font-style: italic; font-size: 12px; }
+  .total-value { font-size: 22px; font-weight: 700; color: var(--green); }
 
-  /* Middle panel: request blocks */
+  /* ── Middle panel: request summary cards ── */
   .req-block {
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -130,12 +162,12 @@ const DashboardHTML = `<!DOCTYPE html>
     animation: fadeIn 0.2s ease;
   }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
-  .req-block.clean { opacity: 0.45; }
+  .req-block.clean { opacity: 0.4; }
   .req-header {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 10px;
+    padding: 7px 10px;
     background: var(--surface);
     cursor: pointer;
     user-select: none;
@@ -144,9 +176,45 @@ const DashboardHTML = `<!DOCTYPE html>
   .req-block.clean .req-header { cursor: default; }
   .req-arrow { color: var(--dim); font-size: 9px; flex-shrink: 0; }
   .req-id { font-size: 10px; font-weight: 700; background: #21262d; color: var(--dim); padding: 2px 6px; border-radius: 3px; flex-shrink: 0; }
-  .req-summary { color: var(--dim); font-size: 11px; flex: 1; }
-  .req-summary.has-secrets { color: var(--text); }
+  .req-model { color: var(--purple); font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .req-ts { color: var(--dim); font-size: 11px; flex-shrink: 0; }
+
+  /* Severity badge row inside req-header */
+  .req-sev-badges {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .sev-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 10px;
+  }
+  .sev-badge.critical { background: var(--red-dim); color: var(--red); border: 1px solid #5a1d1d; }
+  .sev-badge.moderate { background: var(--yellow-dim); color: var(--yellow); border: 1px solid #4a3a10; }
+  .sev-badge.low      { background: var(--grey-dim); color: var(--dim); border: 1px solid var(--border); }
+  .sev-badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  /* Meta line: system prompt size, tools, messages */
+  .req-meta {
+    display: flex;
+    gap: 12px;
+    padding: 4px 10px;
+    background: #0f1419;
+    border-top: 1px solid #21262d;
+    font-size: 10px;
+    color: var(--dim);
+  }
+  .req-meta-item { display: flex; gap: 4px; }
+  .req-meta-label { color: #555; }
+  .req-meta-value { color: var(--dim); }
+
+  /* Expandable user content */
   .req-body {
     padding: 8px 10px;
     font-size: 11px;
@@ -159,15 +227,34 @@ const DashboardHTML = `<!DOCTYPE html>
     max-height: 300px;
     overflow-y: auto;
   }
-  /* Placeholder highlight colors — applied via JS innerHTML after HTML-escaping */
+  .req-body-label {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--dim);
+    margin-bottom: 6px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #21262d;
+  }
+  .req-sev-scope {
+    font-size: 9px;
+    color: var(--dim);
+    opacity: 0.6;
+    margin-left: 2px;
+    align-self: center;
+  }
+  .req-body-empty { color: var(--dim); font-style: italic; }
+
+  /* Placeholder highlight colors */
   .ph-email  { color: var(--blue);   font-weight: 700; }
   .ph-key    { color: var(--red);    font-weight: 700; }
-  .ph-ip     { color: var(--purple); font-weight: 700; }
+  .ph-ip     { color: var(--dim);    font-weight: 700; }
   .ph-env    { color: var(--green);  font-weight: 700; }
   .ph-token  { color: var(--yellow); font-weight: 700; }
   .ph-cred   { color: var(--orange); font-weight: 700; }
 
-  /* Right panel: rehydrated events */
+  /* ── Right panel: rehydrated events ── */
   .rh-row {
     display: flex;
     align-items: flex-start;
@@ -194,48 +281,76 @@ const DashboardHTML = `<!DOCTYPE html>
 </header>
 
 <main>
-  <!-- Left: type aggregates -->
+  <!-- Left: severity-grouped protection summary -->
   <div class="panel">
-    <div class="panel-header">Protected This Session</div>
+    <div class="panel-header">Protection Summary</div>
     <div class="panel-body" id="left-panel">
       <div class="empty-msg" id="left-empty">Waiting for requests...</div>
-      <div id="type-rows" style="display:none">
-        <div class="type-row" id="row-EMAIL" style="display:none">
-          <span class="type-icon">📧</span>
-          <span class="type-label">EMAIL</span>
-          <div class="type-bar-wrap"><div class="type-bar bar-EMAIL" id="bar-EMAIL"></div></div>
-          <span class="type-count" id="count-EMAIL">0</span>
+      <div id="sev-groups" style="display:none">
+
+        <!-- Critical group -->
+        <div class="sev-group" id="grp-critical" style="display:none">
+          <div class="sev-header">
+            <span class="sev-dot critical"></span>
+            <span class="sev-label critical">Critical</span>
+            <span class="sev-count critical" id="sev-count-critical">0</span>
+          </div>
+          <div class="type-row" id="row-KEY" style="display:none">
+            <span class="type-icon">🔑</span>
+            <span class="type-label">KEY</span>
+            <div class="type-bar-wrap"><div class="type-bar bar-KEY" id="bar-KEY"></div></div>
+            <span class="type-count" id="count-KEY">0</span>
+          </div>
+          <div class="type-row" id="row-TOKEN" style="display:none">
+            <span class="type-icon">🎟</span>
+            <span class="type-label">TOKEN</span>
+            <div class="type-bar-wrap"><div class="type-bar bar-TOKEN" id="bar-TOKEN"></div></div>
+            <span class="type-count" id="count-TOKEN">0</span>
+          </div>
+          <div class="type-row" id="row-CRED" style="display:none">
+            <span class="type-icon">🔒</span>
+            <span class="type-label">CRED</span>
+            <div class="type-bar-wrap"><div class="type-bar bar-CRED" id="bar-CRED"></div></div>
+            <span class="type-count" id="count-CRED">0</span>
+          </div>
         </div>
-        <div class="type-row" id="row-KEY" style="display:none">
-          <span class="type-icon">🔑</span>
-          <span class="type-label">KEY</span>
-          <div class="type-bar-wrap"><div class="type-bar bar-KEY" id="bar-KEY"></div></div>
-          <span class="type-count" id="count-KEY">0</span>
+
+        <!-- Moderate group -->
+        <div class="sev-group" id="grp-moderate" style="display:none">
+          <div class="sev-header">
+            <span class="sev-dot moderate"></span>
+            <span class="sev-label moderate">Moderate</span>
+            <span class="sev-count moderate" id="sev-count-moderate">0</span>
+          </div>
+          <div class="type-row" id="row-EMAIL" style="display:none">
+            <span class="type-icon">📧</span>
+            <span class="type-label">EMAIL</span>
+            <div class="type-bar-wrap"><div class="type-bar bar-EMAIL" id="bar-EMAIL"></div></div>
+            <span class="type-count" id="count-EMAIL">0</span>
+          </div>
+          <div class="type-row" id="row-ENV" style="display:none">
+            <span class="type-icon">⚙️</span>
+            <span class="type-label">ENV</span>
+            <div class="type-bar-wrap"><div class="type-bar bar-ENV" id="bar-ENV"></div></div>
+            <span class="type-count" id="count-ENV">0</span>
+          </div>
         </div>
-        <div class="type-row" id="row-IP" style="display:none">
-          <span class="type-icon">🌐</span>
-          <span class="type-label">IP</span>
-          <div class="type-bar-wrap"><div class="type-bar bar-IP" id="bar-IP"></div></div>
-          <span class="type-count" id="count-IP">0</span>
+
+        <!-- Low group -->
+        <div class="sev-group" id="grp-low" style="display:none">
+          <div class="sev-header">
+            <span class="sev-dot low"></span>
+            <span class="sev-label low">Ambient</span>
+            <span class="sev-count low" id="sev-count-low">0</span>
+          </div>
+          <div class="type-row" id="row-IP" style="display:none">
+            <span class="type-icon">🌐</span>
+            <span class="type-label">IP</span>
+            <div class="type-bar-wrap"><div class="type-bar bar-IP" id="bar-IP"></div></div>
+            <span class="type-count" id="count-IP">0</span>
+          </div>
         </div>
-        <div class="type-row" id="row-ENV" style="display:none">
-          <span class="type-icon">⚙️</span>
-          <span class="type-label">ENV</span>
-          <div class="type-bar-wrap"><div class="type-bar bar-ENV" id="bar-ENV"></div></div>
-          <span class="type-count" id="count-ENV">0</span>
-        </div>
-        <div class="type-row" id="row-TOKEN" style="display:none">
-          <span class="type-icon">🎟</span>
-          <span class="type-label">TOKEN</span>
-          <div class="type-bar-wrap"><div class="type-bar bar-TOKEN" id="bar-TOKEN"></div></div>
-          <span class="type-count" id="count-TOKEN">0</span>
-        </div>
-        <div class="type-row" id="row-CRED" style="display:none">
-          <span class="type-icon">🔒</span>
-          <span class="type-label">CRED</span>
-          <div class="type-bar-wrap"><div class="type-bar bar-CRED" id="bar-CRED"></div></div>
-          <span class="type-count" id="count-CRED">0</span>
-        </div>
+
         <div class="total-row">
           <span class="total-label">Unique secrets</span>
           <span class="total-value" id="total-count">0</span>
@@ -244,9 +359,9 @@ const DashboardHTML = `<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- Middle: outbound requests (masked prompt log) -->
+  <!-- Middle: request summary cards -->
   <div class="panel">
-    <div class="panel-header">Outbound Requests (masked)</div>
+    <div class="panel-header">Outbound Requests</div>
     <div class="panel-body" id="mid-panel">
       <div class="empty-msg" id="mid-empty">Waiting for LLM requests...</div>
     </div>
@@ -266,19 +381,17 @@ const DashboardHTML = `<!DOCTYPE html>
 </main>
 
 <script>
-  // Placeholder types known to Shroud — must match masker entity types exactly.
   const TYPES = ['EMAIL','KEY','IP','ENV','TOKEN','CRED'];
   const TYPE_CLASS = {EMAIL:'ph-email',KEY:'ph-key',IP:'ph-ip',ENV:'ph-env',TOKEN:'ph-token',CRED:'ph-cred'};
+  // Severity mapping matches masker.Severity() in Go
+  const TYPE_SEV = {KEY:'critical',TOKEN:'critical',CRED:'critical',EMAIL:'moderate',ENV:'moderate',IP:'low'};
 
-  // Counts per entity type across the session (unique secrets, not occurrences).
   const typeCounts = {EMAIL:0,KEY:0,IP:0,ENV:0,TOKEN:0,CRED:0};
+  const sevCounts  = {critical:0,moderate:0,low:0};
   let totalUnique = 0;
   let rehydratedTotal = 0;
   let reqCounter = 0;
 
-  // HTML-escape arbitrary text before inserting into the DOM.
-  // This prevents prompt-injection XSS: a prompt containing <script> or
-  // event handlers cannot execute in the browser dashboard.
   function escapeHtml(s) {
     return s
       .replace(/&/g, '&amp;')
@@ -288,9 +401,6 @@ const DashboardHTML = `<!DOCTYPE html>
       .replace(/'/g, '&#39;');
   }
 
-  // Highlight Shroud placeholders in an already-HTML-escaped string.
-  // Regex matches only the 6 known entity types to avoid false positives
-  // on user text that happens to look like [WORD_N].
   function highlightPlaceholders(escaped) {
     return escaped.replace(
       /\[(EMAIL|KEY|IP|ENV|TOKEN|CRED)_(\d+)\]/g,
@@ -308,22 +418,38 @@ const DashboardHTML = `<!DOCTYPE html>
     return 'req_' + String(id).padStart(3, '0');
   }
 
-  // Update left-panel type aggregate bars.
-  function updateTypeBars() {
+  function fmtLen(n) {
+    if (!n) return '—';
+    if (n >= 1000) return Math.round(n / 100) / 10 + 'k';
+    return n + ' ch';
+  }
+
+  function updateLeftPanel() {
     const max = Math.max(...Object.values(typeCounts), 1);
     let anyVisible = false;
+
     for (const type of TYPES) {
       const count = typeCounts[type];
+      const row = document.getElementById('row-' + type);
       if (count > 0) {
-        document.getElementById('row-' + type).style.display = 'flex';
+        row.style.display = 'flex';
         document.getElementById('count-' + type).textContent = count;
         document.getElementById('bar-' + type).style.width = Math.round(count / max * 100) + '%';
         anyVisible = true;
       }
     }
+
+    // Show/hide severity groups
+    for (const sev of ['critical','moderate','low']) {
+      const grp = document.getElementById('grp-' + sev);
+      const cnt = sevCounts[sev];
+      grp.style.display = cnt > 0 ? 'block' : 'none';
+      document.getElementById('sev-count-' + sev).textContent = cnt;
+    }
+
     if (anyVisible) {
       document.getElementById('left-empty').style.display = 'none';
-      document.getElementById('type-rows').style.display = 'block';
+      document.getElementById('sev-groups').style.display = 'block';
       document.getElementById('total-count').textContent = totalUnique;
     }
   }
@@ -333,7 +459,23 @@ const DashboardHTML = `<!DOCTYPE html>
     if (!(type in typeCounts)) return;
     typeCounts[type]++;
     totalUnique++;
-    updateTypeBars();
+    const sev = e.severity || TYPE_SEV[type] || 'low';
+    sevCounts[sev] = (sevCounts[sev] || 0) + 1;
+    updateLeftPanel();
+  }
+
+  function buildSevBadges(criticalCount, moderateCount, lowCount) {
+    let html = '';
+    if (criticalCount > 0) {
+      html += '<span class="sev-badge critical"><span class="sev-badge-dot"></span>' + criticalCount + ' critical</span>';
+    }
+    if (moderateCount > 0) {
+      html += '<span class="sev-badge moderate"><span class="sev-badge-dot"></span>' + moderateCount + ' moderate</span>';
+    }
+    if (lowCount > 0) {
+      html += '<span class="sev-badge low"><span class="sev-badge-dot"></span>' + lowCount + ' ambient</span>';
+    }
+    return html;
   }
 
   function handleRequestBody(e) {
@@ -348,30 +490,45 @@ const DashboardHTML = `<!DOCTYPE html>
     block.className = 'req-block' + (isClean ? ' clean' : '');
 
     if (isClean) {
-      // Clean request: single dim row, no expand.
+      const modelLabel = e.model ? escapeHtml(e.model) : '—';
       block.innerHTML =
         '<div class="req-header">' +
           '<span class="req-id">' + reqId + '</span>' +
-          '<span class="req-summary">✓ no secrets detected</span>' +
+          '<span class="req-model">' + modelLabel + '</span>' +
+          '<span style="color:var(--dim);font-size:11px">✓ clean</span>' +
           '<span class="req-ts">' + ts + '</span>' +
         '</div>';
     } else {
-      // Masked request: collapsible. Default to collapsed; first one expands.
-      const preview = escapeHtml((e.body || '').substring(0, 80).split('\n')[0]);
-      const full = highlightPlaceholders(escapeHtml(e.body || ''));
-      const count = e.masked_count || 0;
-      const label = count + ' secret' + (count !== 1 ? 's' : '') + ' masked';
-      // Expanded by default only for the very first masked request.
+      const critical = e.critical_count || 0;
+      const moderate = e.moderate_count || 0;
+      const low      = e.low_count || 0;
+      const modelLabel = e.model ? escapeHtml(e.model) : '—';
+      const userText = e.user_content || '';
+      const fullHtml = userText
+        ? highlightPlaceholders(escapeHtml(userText))
+        : '<span class="req-body-empty">(no user message extracted)</span>';
+
+      // Expanded by default only for the very first masked request
       const expanded = (panel.querySelectorAll('.req-block:not(.clean)').length === 0);
 
       block.innerHTML =
         '<div class="req-header">' +
           '<span class="req-arrow">' + (expanded ? '▼' : '▶') + '</span>' +
           '<span class="req-id">' + reqId + '</span>' +
-          '<span class="req-summary has-secrets">' + label + '</span>' +
+          '<span class="req-model">' + modelLabel + '</span>' +
+          '<div class="req-sev-badges">' + buildSevBadges(critical, moderate, low) + '<span class="req-sev-scope">in full request</span></div>' +
           '<span class="req-ts">' + ts + '</span>' +
         '</div>' +
-        '<div class="req-body" style="display:' + (expanded ? 'block' : 'none') + '">' + full + '</div>';
+        '<div class="req-meta">' +
+          '<span class="req-meta-item"><span class="req-meta-label">sys</span><span class="req-meta-value">' + fmtLen(e.system_len) + '</span></span>' +
+          '<span class="req-meta-item"><span class="req-meta-label">user</span><span class="req-meta-value">' + fmtLen(e.user_len) + '</span></span>' +
+          (e.tool_count ? '<span class="req-meta-item"><span class="req-meta-label">tools</span><span class="req-meta-value">' + e.tool_count + '</span></span>' : '') +
+          (e.msg_count  ? '<span class="req-meta-item"><span class="req-meta-label">msgs</span><span class="req-meta-value">' + e.msg_count + '</span></span>' : '') +
+        '</div>' +
+        '<div class="req-body" style="display:' + (expanded ? 'block' : 'none') + '">' +
+          '<div class="req-body-label">Your last prompt</div>' +
+          fullHtml +
+        '</div>';
 
       block.querySelector('.req-header').addEventListener('click', function() {
         const body = block.querySelector('.req-body');

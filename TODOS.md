@@ -2,6 +2,21 @@
 
 ## Open
 
+### truncateForLog cuts at byte boundary, not rune boundary
+**What:** `truncateForLog()` (`internal/proxy/proxy.go:774`) truncates strings at a byte offset, not a UTF-8 rune boundary. When applied to the `request_body` UI event (1MB cap), a multi-byte character (e.g. emoji, CJK) that straddles the cut point produces one garbled byte in the browser.
+
+**Why:** The UI panel renders raw text content in the browser. A garbled character at the end of a truncated prompt is confusing and could look like corruption.
+
+**Pros:** Fixing ensures truncation is always clean for any language/character set.
+
+**Cons:** Minor — 1MB is far beyond typical LLM prompt sizes. Only triggers for users with very large, non-ASCII prompts.
+
+**Context:** Discovered during eng review of the UI redesign (request_body event, 2026-03-25). Fix: use `[]rune` truncation or walk back from the byte limit to the last valid rune boundary using `utf8.ValidString`.
+
+**Depends on:** Nothing — standalone fix in `truncateForLog()`.
+
+---
+
 ### IP regex false positives on version strings
 **What:** The IPv4 masker regex (`masker.go:47`) matches any 4-octet dotted-decimal number, including version strings like `1.2.3.4` or `0.11.15.0`.
 

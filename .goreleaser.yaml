@@ -1,0 +1,38 @@
+version: 2
+project_name: shroud
+
+builds:
+  - main: ./cmd/shroud
+    binary: shroud
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: nimishr2
+    name: shroud
+
+brews:
+  - repository:
+      owner: nimishr2
+      name: homebrew-tap
+    homepage: "https://github.com/nimishr2/shroud"
+    description: "Mask secrets in AI tool traffic"
+    install: |
+      bin.install "shroud"

@@ -18,20 +18,35 @@ import (
 	"github.com/nimishr2/shroud/internal/masker"
 	"github.com/nimishr2/shroud/internal/proxy"
 	"github.com/nimishr2/shroud/internal/session"
+	"github.com/nimishr2/shroud/internal/toolresolver"
 	"github.com/nimishr2/shroud/internal/ui"
 	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "shroud",
-	Short: "Use AI on real data — without leaking secrets",
+	Use:     "shroud",
+	Short:   "Use AI on real data — without leaking secrets",
+	Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
 }
 
 var runCmd = &cobra.Command{
 	Use:   "run [--ui] <tool> [args...]",
 	Short: "Run an AI tool with secrets masking",
-	Args:  cobra.MinimumNArgs(1),
-	RunE:  runTool,
+	Long: `Run an AI coding tool with automatic secret masking.
+
+Any CLI that respects ANTHROPIC_BASE_URL or OPENAI_BASE_URL will work.
+
+Supported tools: claude, aider
+You can also pass any binary name or path directly.
+
+Examples:
+  shroud claude                        (shorthand)
+  shroud run claude
+  shroud run --ui claude
+  shroud run aider
+  shroud run /usr/local/bin/my-tool`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runTool,
 }
 
 var logsCmd = &cobra.Command{
@@ -56,15 +71,40 @@ func init() {
 	runCmd.Flags().BoolVar(&debugHeadersFlag, "debug-headers", false, "Deprecated alias for --debug-http-log")
 	runCmd.Flags().MarkDeprecated("debug-headers", "use --debug-http-log instead")
 	rootCmd.AddCommand(runCmd, logsCmd, statusCmd)
+
+	// Register known tools as top-level shorthands:
+	// "shroud claude ..." is equivalent to "shroud run claude ..."
+	for name := range toolresolver.KnownTools {
+		n := name // capture for closure
+		rootCmd.AddCommand(&cobra.Command{
+			Use:                n + " [args...]",
+			Short:              "Shorthand for: shroud run " + n,
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return runTool(cmd, append([]string{n}, args...))
+			},
+		})
+	}
 }
 
 func runTool(cmd *cobra.Command, args []string) error {
-	tool := args[0]
+	toolName := args[0]
 	toolArgs := args[1:]
+
+	binPath, resolvedInfo, err := toolresolver.Resolve(toolName)
+	if err != nil {
+		return err
+	}
+	tool := binPath
+	// Use the friendly name (not the full path) for logging and display.
+	displayName := resolvedInfo.FriendlyName
+	if displayName == "" {
+		displayName = filepath.Base(toolName)
+	}
 
 	m := masker.New()
 
-	logger, err := session.NewLogger(tool)
+	logger, err := session.NewLogger(displayName)
 	if err != nil {
 		return fmt.Errorf("session logger: %w", err)
 	}
@@ -89,7 +129,7 @@ func runTool(cmd *cobra.Command, args []string) error {
 		hub = ui.NewHub()
 
 		// Emit session_start so the browser knows which tool is running
-		hub.Publish(ui.Event{Type: "session_start", Tool: tool})
+		hub.Publish(ui.Event{Type: "session_start", Tool: displayName})
 
 		// Serve the dashboard + WebSocket on a second random port
 		uiMux := http.NewServeMux()
@@ -140,7 +180,7 @@ func runTool(cmd *cobra.Command, args []string) error {
 	}
 
 	env := os.Environ()
-	if isCodexTool(tool) {
+	if isCodexTool(toolName) {
 		// Preserve Codex's native auth path and route traffic via a forward proxy
 		// instead of rewriting the model endpoint.
 		env = withoutEnv(env, "OPENAI_BASE_URL")
