@@ -30,6 +30,11 @@ var KnownTools = map[string]ToolInfo{
 		BinaryNames:  []string{"aider"},
 		InstallHint:  "Install Aider: pip install aider-chat",
 	},
+	"deepagents": {
+		FriendlyName: "DeepAgents CLI",
+		BinaryNames:  []string{"deepagents"},
+		InstallHint:  "Install DeepAgents: npm install -g @langchain/deepagents",
+	},
 }
 
 // Resolve looks up a tool by friendly name or raw binary name/path.
