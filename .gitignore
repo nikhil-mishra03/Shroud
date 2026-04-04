@@ -4,7 +4,7 @@
 *.dll
 *.so
 *.dylib
-shroud
+/shroud
 logs/
 
 # Test binary, built with `go test -c`
