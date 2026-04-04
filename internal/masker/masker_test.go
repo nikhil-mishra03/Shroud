@@ -168,9 +168,9 @@ func TestCredRegexDoesNotConsumeJSONStructure(t *testing.T) {
 
 func TestMaskStripeKeyUnderscore(t *testing.T) {
 	m := New()
-	out, events := m.Mask(`stripe.api_key = "sk_live_51HnL8JCTn3R4Z2qLABCDEFGHIJ"`)
-	if strings.Contains(out, "sk_live_") {
-		t.Errorf("Stripe sk_live_ key not masked: %s", out)
+	out, events := m.Mask(`stripe.api_key = "sk_demo_51HnL8JCTn3R4Z2qLABCDEFGHIJ"`)
+	if strings.Contains(out, "sk_demo_") {
+		t.Errorf("sk_demo_ key not masked: %s", out)
 	}
 	if len(events) != 1 || events[0].Entity != EntityKey {
 		t.Errorf("expected 1 KEY event, got %+v", events)
@@ -179,12 +179,12 @@ func TestMaskStripeKeyUnderscore(t *testing.T) {
 
 func TestMaskOpenAIKeyWithSegments(t *testing.T) {
 	m := New()
-	out, events := m.Mask(`OPENAI_KEY = "sk-proj-1234567890abcdefghijklmnopqrstuvwxyzABCDEF"`)
-	if strings.Contains(out, "sk-proj-") {
-		t.Errorf("OpenAI sk-proj- key not masked: %s", out)
+	out, events := m.Mask(`OPENAI_KEY = "sk-demo-1234567890abcdefghijklmnopqrstuvwxyzABCDEF"`)
+	if strings.Contains(out, "sk-demo-") {
+		t.Errorf("sk-demo- key not masked: %s", out)
 	}
 	if len(events) == 0 {
-		t.Errorf("expected KEY event for sk-proj- key, got none")
+		t.Errorf("expected KEY event for sk-demo- key, got none")
 	}
 	for _, e := range events {
 		if e.Entity == EntityKey {
@@ -196,12 +196,12 @@ func TestMaskOpenAIKeyWithSegments(t *testing.T) {
 
 func TestMaskAnthropicKey(t *testing.T) {
 	m := New()
-	out, events := m.Mask(`ANTHROPIC_API_KEY = "sk-ant-api03-longkeyvaluehere1234567890abcdefghij"`)
-	if strings.Contains(out, "sk-ant-") {
-		t.Errorf("Anthropic sk-ant- key not masked: %s", out)
+	out, events := m.Mask(`ANTHROPIC_API_KEY = "sk-demo-api03-longkeyvaluehere1234567890abcdefghij"`)
+	if strings.Contains(out, "sk-demo-") {
+		t.Errorf("sk-demo- key not masked: %s", out)
 	}
 	if len(events) == 0 {
-		t.Errorf("expected KEY event for sk-ant- key, got none")
+		t.Errorf("expected KEY event for sk-demo- key, got none")
 	}
 }
 
