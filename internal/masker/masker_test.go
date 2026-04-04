@@ -166,6 +166,79 @@ func TestCredRegexDoesNotConsumeJSONStructure(t *testing.T) {
 	}
 }
 
+func TestMaskStripeKeyUnderscore(t *testing.T) {
+	m := New()
+	out, events := m.Mask(`stripe.api_key = "sk_live_51HnL8JCTn3R4Z2qLABCDEFGHIJ"`)
+	if strings.Contains(out, "sk_live_") {
+		t.Errorf("Stripe sk_live_ key not masked: %s", out)
+	}
+	if len(events) != 1 || events[0].Entity != EntityKey {
+		t.Errorf("expected 1 KEY event, got %+v", events)
+	}
+}
+
+func TestMaskOpenAIKeyWithSegments(t *testing.T) {
+	m := New()
+	out, events := m.Mask(`OPENAI_KEY = "sk-proj-1234567890abcdefghijklmnopqrstuvwxyzABCDEF"`)
+	if strings.Contains(out, "sk-proj-") {
+		t.Errorf("OpenAI sk-proj- key not masked: %s", out)
+	}
+	if len(events) == 0 {
+		t.Errorf("expected KEY event for sk-proj- key, got none")
+	}
+	for _, e := range events {
+		if e.Entity == EntityKey {
+			return
+		}
+	}
+	t.Errorf("KEY event not found in events: %+v", events)
+}
+
+func TestMaskAnthropicKey(t *testing.T) {
+	m := New()
+	out, events := m.Mask(`ANTHROPIC_API_KEY = "sk-ant-api03-longkeyvaluehere1234567890abcdefghij"`)
+	if strings.Contains(out, "sk-ant-") {
+		t.Errorf("Anthropic sk-ant- key not masked: %s", out)
+	}
+	if len(events) == 0 {
+		t.Errorf("expected KEY event for sk-ant- key, got none")
+	}
+}
+
+func TestMaskJSONColonCredentials(t *testing.T) {
+	m := New()
+	input := `{"database": {"password": "SuperSecret123!", "api_key": "sk-abcdefghij123", "secret": "my-jwt-secret-xyz"}}`
+	out, events := m.Mask(input)
+
+	if strings.Contains(out, "SuperSecret123!") {
+		t.Errorf("JSON password value not masked: %s", out)
+	}
+	if strings.Contains(out, "my-jwt-secret-xyz") {
+		t.Errorf("JSON secret value not masked: %s", out)
+	}
+	credCount := 0
+	for _, e := range events {
+		if e.Entity == EntityCred {
+			credCount++
+		}
+	}
+	if credCount < 2 {
+		t.Errorf("expected at least 2 CRED events from JSON notation, got %d; events: %+v", credCount, events)
+	}
+}
+
+func TestMaskEnvVarWithSpacesAndQuotes(t *testing.T) {
+	m := New()
+	// Assignment with spaces around = and quoted value
+	out, events := m.Mask(`DB_PASSWORD = "Pr0duction$ecure2024!"`)
+	if strings.Contains(out, "Pr0duction") {
+		t.Errorf("quoted env var value not masked: %s", out)
+	}
+	if len(events) == 0 {
+		t.Errorf("expected ENV event for UPPER = \"value\" pattern, got none")
+	}
+}
+
 func TestMaskEnvVarInsideEscapedJSONPreservesValidJSON(t *testing.T) {
 	m := New()
 	input := `{"text":"set DEBUG=1\\\", \\\"when claude stops show X"}`

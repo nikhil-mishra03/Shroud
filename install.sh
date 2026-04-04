@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPO="nimishr2/shroud"
+REPO="nikhil-mishra03/Shroud"
 BINARY="shroud"
 
 # Detect OS

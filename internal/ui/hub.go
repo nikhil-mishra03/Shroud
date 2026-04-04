@@ -19,11 +19,15 @@ type Event struct {
 	Timestamp   string `json:"ts"`
 	Entity      string `json:"entity,omitempty"`
 	Placeholder string `json:"placeholder,omitempty"`
+	Hint        string `json:"hint,omitempty"` // truncated original for display (e.g., "sk_live_51Hn...ZA")
 	RequestID   string `json:"request_id,omitempty"`
 	Tool        string `json:"tool,omitempty"`
 	// Body is the masked outbound request body, populated only for
 	// request_body events. Never contains original secret values.
 	Body        string `json:"body,omitempty"`
+	// FullBody is the complete masked request payload (entire JSON sent to LLM).
+	// Populated for request_body events. Truncated at 1MB for display.
+	FullBody    string `json:"full_body,omitempty"`
 	// MaskedCount is the number of secrets masked in this request.
 	// Zero means the request was clean (no secrets detected).
 	MaskedCount int    `json:"masked_count,omitempty"`
@@ -41,7 +45,8 @@ type Event struct {
 	MessageCount int    `json:"msg_count,omitempty"`      // total messages in conversation
 	CriticalCount int   `json:"critical_count,omitempty"` // secrets masked at critical tier
 	ModerateCount int   `json:"moderate_count,omitempty"` // secrets masked at moderate tier
-	LowCount      int   `json:"low_count,omitempty"`      // secrets masked at low tier
+	LowCount       int    `json:"low_count,omitempty"`       // secrets masked at low tier
+	OutboundBlocks string `json:"outbound_blocks,omitempty"` // JSON array of OutboundBlock
 }
 
 // Hub manages WebSocket clients and broadcasts events.

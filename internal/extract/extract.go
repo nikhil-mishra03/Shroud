@@ -8,15 +8,23 @@ import (
 	"strings"
 )
 
+// OutboundBlock represents a single piece of outbound content from the system to the LLM.
+type OutboundBlock struct {
+	Role    string `json:"role"`    // "user" or "tool_result"
+	Label   string `json:"label"`   // e.g. "User" or tool_use_id
+	Content string `json:"content"` // the actual text content (already masked)
+}
+
 // RequestSummary holds the user-relevant parts of an outbound LLM request.
 // All string fields contain already-masked text — no original secrets.
 type RequestSummary struct {
-	Model        string // model name from payload
-	UserContent  string // concatenated user message content (masked)
-	SystemLen    int    // character count of system prompt(s) — not sent to UI
-	UserLen      int    // character count of user content
-	ToolCount    int    // number of tool definitions
-	MessageCount int    // total messages in the conversation
+	Model          string          // model name from payload
+	UserContent    string          // last user turn text (for meta line)
+	SystemLen      int             // character count of system prompt(s) — not sent to UI
+	UserLen        int             // character count of user content
+	ToolCount      int             // number of tool definitions
+	MessageCount   int             // total messages in the conversation
+	OutboundBlocks []OutboundBlock // all user-side content blocks (text + tool_results)
 }
 
 // Summarize parses a JSON request body (Anthropic or OpenAI format) and
@@ -49,8 +57,8 @@ func Summarize(body string) RequestSummary {
 	}
 
 	// messages array — present in both formats.
-	// We only show the LAST user message (the current turn). Prior user turns
-	// are context history and tool results — not what the user wants to see.
+	// Capture ALL user-side content: user text turns and tool_result blocks.
+	// Skip assistant messages (those are Claude's responses, not outbound from us).
 	if msgs, ok := raw["messages"].([]any); ok {
 		s.MessageCount = len(msgs)
 		var lastUserContent string
@@ -62,13 +70,15 @@ func Summarize(body string) RequestSummary {
 			role, _ := msg["role"].(string)
 			switch role {
 			case "system":
-				// OpenAI system role — measure but don't show
 				s.SystemLen += lenOf(msg["content"])
 			case "user":
-				// Keep overwriting so we end up with the last user turn only.
-				txt := extractText(msg["content"])
-				if txt != "" {
-					lastUserContent = txt
+				blocks := extractOutboundBlocks(msg["content"])
+				s.OutboundBlocks = append(s.OutboundBlocks, blocks...)
+				// Keep last user text for the meta summary line
+				for _, b := range blocks {
+					if b.Role == "user" && b.Content != "" {
+						lastUserContent = b.Content
+					}
 				}
 			}
 		}
@@ -102,30 +112,81 @@ func lenOf(v any) int {
 	}
 }
 
-// extractText pulls a plain string out of a message content field, which can
-// be a string (OpenAI simple format) or an array of content blocks
-// (Anthropic / OpenAI vision format).
-func extractText(content any) string {
+// extractOutboundBlocks returns all user-side content blocks from a message
+// content field. It handles plain strings, text blocks, and tool_result blocks.
+// Image blocks are skipped. Assistant messages must not be passed here.
+func extractOutboundBlocks(content any) []OutboundBlock {
+	switch v := content.(type) {
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []OutboundBlock{{Role: "user", Label: "User", Content: v}}
+	case []any:
+		var blocks []OutboundBlock
+		for _, item := range v {
+			b, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			switch b["type"] {
+			case "text":
+				if text, ok := b["text"].(string); ok && text != "" {
+					blocks = append(blocks, OutboundBlock{Role: "user", Label: "User", Content: text})
+				}
+			case "tool_result":
+				label, _ := b["tool_use_id"].(string)
+				if label == "" {
+					label = "tool_result"
+				}
+				// tool_result content can be a string or an array of text blocks
+				text := extractToolResultText(b["content"])
+				if text != "" {
+					blocks = append(blocks, OutboundBlock{Role: "tool_result", Label: label, Content: text})
+				}
+			// image blocks intentionally skipped
+			}
+		}
+		return blocks
+	default:
+		return nil
+	}
+}
+
+// extractToolResultText extracts plain text from a tool_result content field,
+// which can be a string or an array of text blocks.
+func extractToolResultText(content any) string {
 	switch v := content.(type) {
 	case string:
 		return v
 	case []any:
 		var parts []string
-		for _, block := range v {
-			b, ok := block.(map[string]any)
+		for _, item := range v {
+			b, ok := item.(map[string]any)
 			if !ok {
 				continue
 			}
-			// text block: {"type": "text", "text": "..."}
 			if b["type"] == "text" {
 				if text, ok := b["text"].(string); ok && text != "" {
 					parts = append(parts, text)
 				}
 			}
-			// tool_result / image blocks are intentionally skipped
 		}
-		return strings.Join(parts, " ")
+		return strings.Join(parts, "\n")
 	default:
 		return ""
 	}
+}
+
+// extractText pulls a plain string out of a message content field.
+// Kept for backward compatibility with existing callers.
+func extractText(content any) string {
+	blocks := extractOutboundBlocks(content)
+	var parts []string
+	for _, b := range blocks {
+		if b.Content != "" {
+			parts = append(parts, b.Content)
+		}
+	}
+	return strings.Join(parts, " ")
 }

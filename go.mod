@@ -1,4 +1,4 @@
-module github.com/nimishr2/shroud
+module github.com/nikhil-mishra03/Shroud
 
 go 1.24.0
 

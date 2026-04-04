@@ -15,11 +15,11 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/nimishr2/shroud/internal/masker"
-	"github.com/nimishr2/shroud/internal/proxy"
-	"github.com/nimishr2/shroud/internal/session"
-	"github.com/nimishr2/shroud/internal/toolresolver"
-	"github.com/nimishr2/shroud/internal/ui"
+	"github.com/nikhil-mishra03/Shroud/internal/masker"
+	"github.com/nikhil-mishra03/Shroud/internal/proxy"
+	"github.com/nikhil-mishra03/Shroud/internal/session"
+	"github.com/nikhil-mishra03/Shroud/internal/toolresolver"
+	"github.com/nikhil-mishra03/Shroud/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -76,14 +76,16 @@ func init() {
 	// "shroud claude ..." is equivalent to "shroud run claude ..."
 	for name := range toolresolver.KnownTools {
 		n := name // capture for closure
-		rootCmd.AddCommand(&cobra.Command{
-			Use:                n + " [args...]",
-			Short:              "Shorthand for: shroud run " + n,
-			DisableFlagParsing: true,
+		shorthandCmd := &cobra.Command{
+			Use:   n + " [args...]",
+			Short: "Shorthand for: shroud run " + n,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				return runTool(cmd, append([]string{n}, args...))
 			},
-		})
+		}
+		shorthandCmd.Flags().BoolVar(&uiFlag, "ui", false, "Open live dashboard in browser")
+		shorthandCmd.Flags().BoolVar(&debugHTTPLogFlag, "debug-http-log", false, "Write verbose per-session proxy request/response logs")
+		rootCmd.AddCommand(shorthandCmd)
 	}
 }
 

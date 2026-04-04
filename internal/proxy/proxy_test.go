@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nimishr2/shroud/internal/masker"
-	"github.com/nimishr2/shroud/internal/session"
-	"github.com/nimishr2/shroud/internal/ui"
+	"github.com/nikhil-mishra03/Shroud/internal/masker"
+	"github.com/nikhil-mishra03/Shroud/internal/session"
+	"github.com/nikhil-mishra03/Shroud/internal/ui"
 )
 
 func TestResolveUpstreamUsesDefaultProvider(t *testing.T) {

@@ -270,6 +270,16 @@ const DashboardHTML = `<!DOCTYPE html>
   .rh-ts { color: var(--dim); font-size: 11px; margin-left: auto; flex-shrink: 0; }
   .rh-count { font-size: 20px; font-weight: 700; color: var(--text); margin-top: 12px; }
   .rh-count-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .outbound-block { margin-bottom: 10px; border-left: 2px solid #30363d; padding-left: 8px; }
+  .outbound-block.outbound-tool { border-left-color: #388bfd44; }
+  .outbound-block-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .outbound-block-content { font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; }
+  .rh-main { display: flex; align-items: center; gap: 6px; flex: 1; }
+  .rh-arrow { color: var(--dim); }
+  .rh-hint { color: var(--dim); font-size: 11px; font-family: monospace; }
+  .sev-critical { color: #f85149; }
+  .sev-moderate { color: #d29922; }
+  .sev-low { color: var(--dim); }
 </style>
 </head>
 <body>
@@ -424,6 +434,9 @@ const DashboardHTML = `<!DOCTYPE html>
     return n + ' ch';
   }
 
+  // hintMap: stores {placeholder → {hint, entity, severity}} for rehydrate events
+  const hintMap = {};
+
   function updateLeftPanel() {
     const max = Math.max(...Object.values(typeCounts), 1);
     let anyVisible = false;
@@ -457,6 +470,11 @@ const DashboardHTML = `<!DOCTYPE html>
   function handleMaskEvent(e) {
     const type = e.entity;
     if (!(type in typeCounts)) return;
+
+    // Store hint for later rehydrate event lookup
+    if (e.placeholder) {
+      hintMap[e.placeholder] = { hint: e.hint || e.placeholder, entity: e.entity, severity: e.severity };
+    }
     typeCounts[type]++;
     totalUnique++;
     const sev = e.severity || TYPE_SEV[type] || 'low';
@@ -503,10 +521,28 @@ const DashboardHTML = `<!DOCTYPE html>
       const moderate = e.moderate_count || 0;
       const low      = e.low_count || 0;
       const modelLabel = e.model ? escapeHtml(e.model) : '—';
-      const userText = e.user_content || '';
-      const fullHtml = userText
-        ? highlightPlaceholders(escapeHtml(userText))
-        : '<span class="req-body-empty">(no user message extracted)</span>';
+
+      // Build outbound blocks HTML
+      let blocksHtml = '';
+      try {
+        const blocks = e.outbound_blocks ? JSON.parse(e.outbound_blocks) : [];
+        if (blocks.length > 0) {
+          blocks.forEach(function(b) {
+            const isToolResult = b.role === 'tool_result';
+            const label = isToolResult ? 'Tool result · ' + escapeHtml(b.label) : 'User';
+            const content = highlightPlaceholders(escapeHtml(b.content || ''));
+            blocksHtml +=
+              '<div class="outbound-block' + (isToolResult ? ' outbound-tool' : '') + '">' +
+                '<div class="outbound-block-label">' + label + '</div>' +
+                '<div class="outbound-block-content">' + content + '</div>' +
+              '</div>';
+          });
+        } else {
+          blocksHtml = '<span class="req-body-empty">(no content extracted)</span>';
+        }
+      } catch (_) {
+        blocksHtml = '<span class="req-body-empty">(parse error)</span>';
+      }
 
       // Expanded by default only for the very first masked request
       const expanded = (panel.querySelectorAll('.req-block:not(.clean)').length === 0);
@@ -526,8 +562,8 @@ const DashboardHTML = `<!DOCTYPE html>
           (e.msg_count  ? '<span class="req-meta-item"><span class="req-meta-label">msgs</span><span class="req-meta-value">' + e.msg_count + '</span></span>' : '') +
         '</div>' +
         '<div class="req-body" style="display:' + (expanded ? 'block' : 'none') + '">' +
-          '<div class="req-body-label">Your last prompt</div>' +
-          fullHtml +
+          '<div class="req-body-label">Outbound to LLM</div>' +
+          blocksHtml +
         '</div>';
 
       block.querySelector('.req-header').addEventListener('click', function() {
@@ -553,11 +589,15 @@ const DashboardHTML = `<!DOCTYPE html>
     const row = document.createElement('div');
     row.className = 'rh-row';
     const ph = e.placeholder ? escapeHtml(e.placeholder) : '(chunk)';
+    const info = e.placeholder ? hintMap[e.placeholder] : null;
+    const hint = info ? escapeHtml(info.hint) : '';
+    const sevClass = info ? ' sev-' + (info.severity || 'low') : '';
+
     row.innerHTML =
       '<span class="rh-check">✓</span>' +
-      '<div>' +
-        '<div><span class="rh-ph">' + ph + '</span></div>' +
-        '<div class="rh-desc">restored in response</div>' +
+      '<div class="rh-main">' +
+        '<span class="rh-ph">' + ph + '</span>' +
+        (hint ? '<span class="rh-arrow">→</span><span class="rh-hint' + sevClass + '">' + hint + '</span>' : '') +
       '</div>' +
       '<span class="rh-ts">' + fmt(e.ts) + '</span>';
     panel.appendChild(row);

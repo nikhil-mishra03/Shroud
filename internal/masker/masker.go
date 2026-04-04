@@ -49,11 +49,17 @@ func New() *Masker {
 	}
 	m.rules = []*rule{
 		{EntityEmail, regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`), nil},
-		{EntityKey, regexp.MustCompile(`(?i)(sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-._~+/]+=*|ghp_[a-zA-Z0-9]{36}|xox[baprs]-[a-zA-Z0-9\-]+)`), nil},
+		// KEY: sk- and sk_ prefix (covers Stripe sk_live_/sk_test_, OpenAI sk-proj-, Anthropic sk-ant-),
+		// Bearer tokens, GitHub ghp_, and Slack xox* tokens.
+		{EntityKey, regexp.MustCompile(`(?i)(sk[-_][a-zA-Z0-9_\-]{20,}|Bearer\s+[a-zA-Z0-9\-._~+/]+=*|ghp_[a-zA-Z0-9]{36}|xox[baprs]-[a-zA-Z0-9\-]+)`), nil},
 		{EntityToken, regexp.MustCompile(`eyJ[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+`), nil},
 		{EntityIP, regexp.MustCompile(`\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b`), isVersionStringContext},
-		{EntityEnvVar, regexp.MustCompile(`\b([A-Z_]{2,})=([^\s"'\]}` + "`" + `\\]+)`), nil},
+		// ENV: UPPER_CASE=value (bare or quoted, with optional spaces around =)
+		{EntityEnvVar, regexp.MustCompile(`\b([A-Z_]{2,})\s*=\s*"?([^\s"'\]}\[` + "`" + `\\]+)"?`), nil},
+		// CRED: key=value (equals notation) — JSON-safe value terminator
 		{EntityCred, regexp.MustCompile(`\b(password|passwd|secret|api_key|auth|token)=([^\s"'\\,\]}\[]+)`), nil},
+		// CRED_JSON: "key": "value" (JSON colon notation)
+		{EntityCred, regexp.MustCompile(`"(password|passwd|secret|api_key|auth|token)"\s*:\s*"([^"\\]+)"`), nil},
 	}
 	return m
 }
@@ -205,4 +211,31 @@ func (m *Masker) placeholderLocked(t EntityType, original string) string {
 	m.mappings[ph] = original
 	m.reverseMap[original] = ph
 	return ph
+}
+
+// TruncateHint returns a truncated version of the original value for display purposes.
+// IPs are shown in full. Values <= 14 chars are shown in full. Longer values show
+// first 6 + "..." + last 4 (e.g., "sk_live_51Hn...ZA").
+func TruncateHint(original string, entity EntityType) string {
+	if entity == EntityIP {
+		return original // IPs are short, show full
+	}
+	const minLen = 14
+	if len(original) <= minLen {
+		return original
+	}
+	return original[:6] + "..." + original[len(original)-4:]
+}
+
+// FindPlaceholders returns all placeholders that appear in the given text.
+func (m *Masker) FindPlaceholders(text string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var found []string
+	for ph := range m.mappings {
+		if strings.Contains(text, ph) {
+			found = append(found, ph)
+		}
+	}
+	return found
 }

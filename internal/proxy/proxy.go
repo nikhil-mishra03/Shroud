@@ -19,6 +19,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -33,10 +34,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nimishr2/shroud/internal/extract"
-	"github.com/nimishr2/shroud/internal/masker"
-	"github.com/nimishr2/shroud/internal/session"
-	"github.com/nimishr2/shroud/internal/ui"
+	"github.com/nikhil-mishra03/Shroud/internal/extract"
+	"github.com/nikhil-mishra03/Shroud/internal/masker"
+	"github.com/nikhil-mishra03/Shroud/internal/session"
+	"github.com/nikhil-mishra03/Shroud/internal/ui"
 )
 
 const (
@@ -187,6 +188,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 			Type:        "mask_event",
 			Entity:      string(e.Entity),
 			Placeholder: e.Placeholder,
+			Hint:        masker.TruncateHint(e.Original, e.Entity),
 			Severity:    sev,
 			RequestID:   requestID,
 		})
@@ -202,19 +204,21 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 		if len(userContent) > maxLoggedStreamAggregateBytes {
 			userContent = userContent[:maxLoggedStreamAggregateBytes] + " [TRUNCATED]"
 		}
+		blocksJSON, _ := json.Marshal(summary.OutboundBlocks)
 		p.emit(ui.Event{
-			Type:          "request_body",
-			RequestID:     requestID,
-			MaskedCount:   len(events),
-			CriticalCount: criticalCount,
-			ModerateCount: moderateCount,
-			LowCount:      lowCount,
-			UserContent:   userContent,
-			Model:         summary.Model,
-			SystemLen:     summary.SystemLen,
-			UserLen:       summary.UserLen,
-			ToolCount:     summary.ToolCount,
-			MessageCount:  summary.MessageCount,
+			Type:           "request_body",
+			RequestID:      requestID,
+			MaskedCount:    len(events),
+			CriticalCount:  criticalCount,
+			ModerateCount:  moderateCount,
+			LowCount:       lowCount,
+			UserContent:    userContent,
+			OutboundBlocks: string(blocksJSON),
+			Model:          summary.Model,
+			SystemLen:      summary.SystemLen,
+			UserLen:        summary.UserLen,
+			ToolCount:      summary.ToolCount,
+			MessageCount:   summary.MessageCount,
 		})
 	}
 
@@ -389,10 +393,13 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 		)...,
 	)
 
+	placeholders := p.masker.FindPlaceholders(string(respBody))
 	rehydrated := p.masker.Rehydrate(string(respBody))
 	if rehydrated != string(respBody) {
-		p.logger.LogRehydrate("(body)", requestID)
-		p.emit(ui.Event{Type: "rehydrate_event", RequestID: requestID})
+		for _, ph := range placeholders {
+			p.logger.LogRehydrate(ph, requestID)
+			p.emit(ui.Event{Type: "rehydrate_event", Placeholder: ph, RequestID: requestID})
+		}
 	}
 
 	written, writeErr := w.Write([]byte(rehydrated))
@@ -480,20 +487,26 @@ func (p *Proxy) streamRehydrate(w http.ResponseWriter, body io.Reader, requestID
 			combined = combined[:idx]
 		}
 
+		placeholders := p.masker.FindPlaceholders(combined)
 		rehydrated := p.masker.Rehydrate(combined)
 		if rehydrated != combined {
-			p.logger.LogRehydrate("(stream)", requestID)
-			p.emit(ui.Event{Type: "rehydrate_event", RequestID: requestID})
+			for _, ph := range placeholders {
+				p.logger.LogRehydrate(ph, requestID)
+				p.emit(ui.Event{Type: "rehydrate_event", Placeholder: ph, RequestID: requestID})
+			}
 		}
 
 		writeChunk(rehydrated, true)
 	}
 
 	if partial != "" {
+		placeholders := p.masker.FindPlaceholders(partial)
 		rehydrated := p.masker.Rehydrate(partial)
 		if rehydrated != partial {
-			p.logger.LogRehydrate("(stream)", requestID)
-			p.emit(ui.Event{Type: "rehydrate_event", RequestID: requestID})
+			for _, ph := range placeholders {
+				p.logger.LogRehydrate(ph, requestID)
+				p.emit(ui.Event{Type: "rehydrate_event", Placeholder: ph, RequestID: requestID})
+			}
 		}
 		writeChunk(rehydrated, false)
 	}
