@@ -25,14 +25,14 @@ checksum:
 
 release:
   github:
-    owner: nimishr2
-    name: shroud
+    owner: nikhil-mishra03
+    name: Shroud
 
 brews:
   - repository:
-      owner: nimishr2
+      owner: nikhil-mishra03
       name: homebrew-tap
-    homepage: "https://github.com/nimishr2/shroud"
+    homepage: "https://github.com/nikhil-mishra03/Shroud"
     description: "Mask secrets in AI tool traffic"
     install: |
       bin.install "shroud"
