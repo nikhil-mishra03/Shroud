@@ -245,6 +245,28 @@ const DashboardHTML = `<!DOCTYPE html>
     align-self: center;
   }
   .req-body-empty { color: var(--dim); font-style: italic; }
+  .masked-list { margin-bottom: 10px; }
+  .masked-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) minmax(120px, 0.8fr) 90px 90px;
+    gap: 8px;
+    padding: 4px 0;
+    border-bottom: 1px solid #1d232b;
+    font-size: 11px;
+    align-items: center;
+  }
+  .masked-row.head {
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 9px;
+    font-weight: 700;
+    border-bottom-color: #2a313a;
+  }
+  .masked-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .masked-cell.sev-critical { color: var(--red); font-weight: 700; }
+  .masked-cell.sev-moderate { color: var(--yellow); font-weight: 700; }
+  .masked-cell.sev-low { color: var(--dim); font-weight: 700; }
 
   /* Placeholder highlight colors */
   .ph-email  { color: var(--blue);   font-weight: 700; }
@@ -436,6 +458,8 @@ const DashboardHTML = `<!DOCTYPE html>
 
   // hintMap: stores {placeholder → {hint, entity, severity}} for rehydrate events
   const hintMap = {};
+  // requestMaskRows: request_id -> [{key, placeholder, severity, entity}]
+  const requestMaskRows = {};
 
   function updateLeftPanel() {
     const max = Math.max(...Object.values(typeCounts), 1);
@@ -474,6 +498,16 @@ const DashboardHTML = `<!DOCTYPE html>
     // Store hint for later rehydrate event lookup
     if (e.placeholder) {
       hintMap[e.placeholder] = { hint: e.hint || e.placeholder, entity: e.entity, severity: e.severity };
+    }
+    if (e.request_id) {
+      const req = String(e.request_id);
+      if (!requestMaskRows[req]) requestMaskRows[req] = [];
+      requestMaskRows[req].push({
+        key: e.hint || '',
+        placeholder: e.placeholder || '',
+        severity: e.severity || TYPE_SEV[type] || 'low',
+        entity: e.entity || '',
+      });
     }
     typeCounts[type]++;
     totalUnique++;
@@ -521,6 +555,38 @@ const DashboardHTML = `<!DOCTYPE html>
       const moderate = e.moderate_count || 0;
       const low      = e.low_count || 0;
       const modelLabel = e.model ? escapeHtml(e.model) : '—';
+
+      const reqKey = String(e.request_id || '');
+      const rawMaskRows = requestMaskRows[reqKey] || [];
+      const seen = {};
+      const dedupedMaskRows = rawMaskRows.filter(function(r) {
+        const k = [r.key, r.placeholder, r.severity, r.entity].join('|');
+        if (seen[k]) return false;
+        seen[k] = true;
+        return true;
+      });
+      let maskRowsHtml = '';
+      if (dedupedMaskRows.length > 0) {
+        maskRowsHtml +=
+          '<div class="masked-row head">' +
+            '<div class="masked-cell">Key (truncated)</div>' +
+            '<div class="masked-cell">Placeholder</div>' +
+            '<div class="masked-cell">Severity</div>' +
+            '<div class="masked-cell">Entity Type</div>' +
+          '</div>';
+        dedupedMaskRows.forEach(function(r) {
+          const sevClass = 'sev-' + (r.severity || 'low');
+          maskRowsHtml +=
+            '<div class="masked-row">' +
+              '<div class="masked-cell">' + escapeHtml(r.key || '—') + '</div>' +
+              '<div class="masked-cell">' + escapeHtml(r.placeholder || '—') + '</div>' +
+              '<div class="masked-cell ' + sevClass + '">' + escapeHtml((r.severity || 'low').toUpperCase()) + '</div>' +
+              '<div class="masked-cell">' + escapeHtml(r.entity || '—') + '</div>' +
+            '</div>';
+        });
+      } else {
+        maskRowsHtml = '<span class="req-body-empty">(no masked fields recorded for this request)</span>';
+      }
 
       function renderBlocks(blocks, emptyText) {
         let html = '';
@@ -571,6 +637,8 @@ const DashboardHTML = `<!DOCTYPE html>
           (e.msg_count  ? '<span class="req-meta-item"><span class="req-meta-label">msgs</span><span class="req-meta-value">' + e.msg_count + '</span></span>' : '') +
         '</div>' +
         '<div class="req-body" style="display:' + (expanded ? 'block' : 'none') + '">' +
+          '<div class="req-body-label">Masked fields</div>' +
+          '<div class="masked-list">' + maskRowsHtml + '</div>' +
           '<div class="req-body-label">Changed outbound to LLM</div>' +
           changedBlocksHtml +
           '<details style="margin-top:10px">' +
@@ -578,6 +646,8 @@ const DashboardHTML = `<!DOCTYPE html>
             '<div style="margin-top:8px">' + fullBlocksHtml + '</div>' +
           '</details>' +
         '</div>';
+
+      if (reqKey) delete requestMaskRows[reqKey];
 
       block.querySelector('.req-header').addEventListener('click', function() {
         const body = block.querySelector('.req-body');
