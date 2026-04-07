@@ -522,26 +522,35 @@ const DashboardHTML = `<!DOCTYPE html>
       const low      = e.low_count || 0;
       const modelLabel = e.model ? escapeHtml(e.model) : '—';
 
-      // Build outbound blocks HTML
-      let blocksHtml = '';
-      try {
-        const blocks = e.outbound_blocks ? JSON.parse(e.outbound_blocks) : [];
+      function renderBlocks(blocks, emptyText) {
+        let html = '';
         if (blocks.length > 0) {
           blocks.forEach(function(b) {
             const isToolResult = b.role === 'tool_result';
             const label = isToolResult ? 'Tool result · ' + escapeHtml(b.label) : 'User';
             const content = highlightPlaceholders(escapeHtml(b.content || ''));
-            blocksHtml +=
+            html +=
               '<div class="outbound-block' + (isToolResult ? ' outbound-tool' : '') + '">' +
                 '<div class="outbound-block-label">' + label + '</div>' +
                 '<div class="outbound-block-content">' + content + '</div>' +
               '</div>';
           });
         } else {
-          blocksHtml = '<span class="req-body-empty">(no content extracted)</span>';
+          html = '<span class="req-body-empty">' + emptyText + '</span>';
         }
+        return html;
+      }
+
+      let changedBlocksHtml = '';
+      let fullBlocksHtml = '';
+      try {
+        const changedBlocks = e.changed_outbound_blocks ? JSON.parse(e.changed_outbound_blocks) : [];
+        const fullBlocks = e.outbound_blocks ? JSON.parse(e.outbound_blocks) : [];
+        changedBlocksHtml = renderBlocks(changedBlocks, '(no changed outbound content detected)');
+        fullBlocksHtml = renderBlocks(fullBlocks, '(no content extracted)');
       } catch (_) {
-        blocksHtml = '<span class="req-body-empty">(parse error)</span>';
+        changedBlocksHtml = '<span class="req-body-empty">(parse error)</span>';
+        fullBlocksHtml = '<span class="req-body-empty">(parse error)</span>';
       }
 
       // Expanded by default only for the very first masked request
@@ -562,8 +571,12 @@ const DashboardHTML = `<!DOCTYPE html>
           (e.msg_count  ? '<span class="req-meta-item"><span class="req-meta-label">msgs</span><span class="req-meta-value">' + e.msg_count + '</span></span>' : '') +
         '</div>' +
         '<div class="req-body" style="display:' + (expanded ? 'block' : 'none') + '">' +
-          '<div class="req-body-label">Outbound to LLM</div>' +
-          blocksHtml +
+          '<div class="req-body-label">Changed outbound to LLM</div>' +
+          changedBlocksHtml +
+          '<details style="margin-top:10px">' +
+            '<summary style="cursor:pointer;color:var(--dim);font-size:11px">Full outbound (all extracted blocks)</summary>' +
+            '<div style="margin-top:8px">' + fullBlocksHtml + '</div>' +
+          '</details>' +
         '</div>';
 
       block.querySelector('.req-header').addEventListener('click', function() {

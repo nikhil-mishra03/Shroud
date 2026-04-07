@@ -4,6 +4,8 @@
 package extract
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 )
@@ -144,7 +146,7 @@ func extractOutboundBlocks(content any) []OutboundBlock {
 				if text != "" {
 					blocks = append(blocks, OutboundBlock{Role: "tool_result", Label: label, Content: text})
 				}
-			// image blocks intentionally skipped
+				// image blocks intentionally skipped
 			}
 		}
 		return blocks
@@ -189,4 +191,42 @@ func extractText(content any) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// DiffOutboundBlocks returns blocks present in current but not in previous,
+// preserving current order and respecting duplicate counts.
+func DiffOutboundBlocks(previous, current []OutboundBlock) []OutboundBlock {
+	if len(current) == 0 {
+		return nil
+	}
+	if len(previous) == 0 {
+		out := make([]OutboundBlock, len(current))
+		copy(out, current)
+		return out
+	}
+
+	prevCounts := make(map[string]int, len(previous))
+	for _, b := range previous {
+		prevCounts[blockFingerprint(b)]++
+	}
+
+	var changed []OutboundBlock
+	for _, b := range current {
+		fp := blockFingerprint(b)
+		if prevCounts[fp] > 0 {
+			prevCounts[fp]--
+			continue
+		}
+		changed = append(changed, b)
+	}
+	return changed
+}
+
+func blockFingerprint(b OutboundBlock) string {
+	h := sha256.Sum256([]byte(b.Role + "\x00" + b.Label + "\x00" + normalizeContent(b.Content)))
+	return hex.EncodeToString(h[:])
+}
+
+func normalizeContent(s string) string {
+	return strings.ReplaceAll(s, "\r\n", "\n")
 }

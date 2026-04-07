@@ -103,16 +103,18 @@ type MaskEvent struct {
 // Proxy intercepts HTTP requests from AI tools, masks sensitive data, forwards
 // to the real upstream, and rehydrates the response.
 type Proxy struct {
-	masker          *masker.Masker
-	logger          *session.Logger
-	debugLog        *session.ProxyDebugLogger
-	hub             *ui.Hub           // nil when --ui is not set
-	upstreams       map[string]string // provider name → original base URL
-	defaultProvider string
-	server          *http.Server
-	listener        net.Listener
-	selfAddr        string // the proxy's own host:port, used to detect self-referencing loops
-	mu              sync.Mutex
+	masker           *masker.Masker
+	logger           *session.Logger
+	debugLog         *session.ProxyDebugLogger
+	hub              *ui.Hub           // nil when --ui is not set
+	upstreams        map[string]string // provider name → original base URL
+	defaultProvider  string
+	server           *http.Server
+	listener         net.Listener
+	selfAddr         string // the proxy's own host:port, used to detect self-referencing loops
+	mu               sync.Mutex
+	outboundStateMu  sync.Mutex
+	previousOutbound []extract.OutboundBlock
 }
 
 func New(m *masker.Masker, l *session.Logger, debugLog *session.ProxyDebugLogger, hub *ui.Hub, upstreams map[string]string, defaultProvider string) *Proxy {
@@ -205,20 +207,23 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 			userContent = userContent[:maxLoggedStreamAggregateBytes] + " [TRUNCATED]"
 		}
 		blocksJSON, _ := json.Marshal(summary.OutboundBlocks)
+		changedBlocks := p.changedOutboundBlocks(summary.OutboundBlocks)
+		changedBlocksJSON, _ := json.Marshal(changedBlocks)
 		p.emit(ui.Event{
-			Type:           "request_body",
-			RequestID:      requestID,
-			MaskedCount:    len(events),
-			CriticalCount:  criticalCount,
-			ModerateCount:  moderateCount,
-			LowCount:       lowCount,
-			UserContent:    userContent,
-			OutboundBlocks: string(blocksJSON),
-			Model:          summary.Model,
-			SystemLen:      summary.SystemLen,
-			UserLen:        summary.UserLen,
-			ToolCount:      summary.ToolCount,
-			MessageCount:   summary.MessageCount,
+			Type:                  "request_body",
+			RequestID:             requestID,
+			MaskedCount:           len(events),
+			CriticalCount:         criticalCount,
+			ModerateCount:         moderateCount,
+			LowCount:              lowCount,
+			UserContent:           userContent,
+			OutboundBlocks:        string(blocksJSON),
+			ChangedOutboundBlocks: string(changedBlocksJSON),
+			Model:                 summary.Model,
+			SystemLen:             summary.SystemLen,
+			UserLen:               summary.UserLen,
+			ToolCount:             summary.ToolCount,
+			MessageCount:          summary.MessageCount,
 		})
 	}
 
@@ -524,6 +529,24 @@ func (p *Proxy) emit(e ui.Event) {
 		return
 	}
 	p.hub.Publish(e)
+}
+
+func (p *Proxy) changedOutboundBlocks(current []extract.OutboundBlock) []extract.OutboundBlock {
+	p.outboundStateMu.Lock()
+	defer p.outboundStateMu.Unlock()
+
+	changed := extract.DiffOutboundBlocks(p.previousOutbound, current)
+	p.previousOutbound = cloneOutboundBlocks(current)
+	return changed
+}
+
+func cloneOutboundBlocks(in []extract.OutboundBlock) []extract.OutboundBlock {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]extract.OutboundBlock, len(in))
+	copy(out, in)
+	return out
 }
 
 // resolveUpstream returns the upstream base URL for this proxy's provider.

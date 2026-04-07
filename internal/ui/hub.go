@@ -24,29 +24,30 @@ type Event struct {
 	Tool        string `json:"tool,omitempty"`
 	// Body is the masked outbound request body, populated only for
 	// request_body events. Never contains original secret values.
-	Body        string `json:"body,omitempty"`
+	Body string `json:"body,omitempty"`
 	// FullBody is the complete masked request payload (entire JSON sent to LLM).
 	// Populated for request_body events. Truncated at 1MB for display.
-	FullBody    string `json:"full_body,omitempty"`
+	FullBody string `json:"full_body,omitempty"`
 	// MaskedCount is the number of secrets masked in this request.
 	// Zero means the request was clean (no secrets detected).
-	MaskedCount int    `json:"masked_count,omitempty"`
+	MaskedCount int `json:"masked_count,omitempty"`
 
 	// Severity is the risk tier for mask_event events: "critical", "moderate", or "low".
 	Severity string `json:"severity,omitempty"`
 
 	// Structured request summary — populated for request_body events.
 	// These replace the raw Body field with user-relevant content only.
-	UserContent  string `json:"user_content,omitempty"`  // masked user message text
-	Model        string `json:"model,omitempty"`          // model name from payload
-	SystemLen    int    `json:"system_len,omitempty"`     // system prompt char count
-	UserLen      int    `json:"user_len,omitempty"`       // user content char count
-	ToolCount    int    `json:"tool_count,omitempty"`     // number of tool definitions
-	MessageCount int    `json:"msg_count,omitempty"`      // total messages in conversation
-	CriticalCount int   `json:"critical_count,omitempty"` // secrets masked at critical tier
-	ModerateCount int   `json:"moderate_count,omitempty"` // secrets masked at moderate tier
-	LowCount       int    `json:"low_count,omitempty"`       // secrets masked at low tier
-	OutboundBlocks string `json:"outbound_blocks,omitempty"` // JSON array of OutboundBlock
+	UserContent           string `json:"user_content,omitempty"`            // masked user message text
+	Model                 string `json:"model,omitempty"`                   // model name from payload
+	SystemLen             int    `json:"system_len,omitempty"`              // system prompt char count
+	UserLen               int    `json:"user_len,omitempty"`                // user content char count
+	ToolCount             int    `json:"tool_count,omitempty"`              // number of tool definitions
+	MessageCount          int    `json:"msg_count,omitempty"`               // total messages in conversation
+	CriticalCount         int    `json:"critical_count,omitempty"`          // secrets masked at critical tier
+	ModerateCount         int    `json:"moderate_count,omitempty"`          // secrets masked at moderate tier
+	LowCount              int    `json:"low_count,omitempty"`               // secrets masked at low tier
+	OutboundBlocks        string `json:"outbound_blocks,omitempty"`         // JSON array of OutboundBlock
+	ChangedOutboundBlocks string `json:"changed_outbound_blocks,omitempty"` // JSON array of changed OutboundBlock
 }
 
 // Hub manages WebSocket clients and broadcasts events.

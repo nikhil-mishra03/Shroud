@@ -133,3 +133,68 @@ func TestSummarize_ImageBlocksSkipped(t *testing.T) {
 		t.Errorf("user_content: got %q, want %q", s.UserContent, "What is in this image?")
 	}
 }
+
+func TestDiffOutboundBlocks_FirstRequestReturnsAll(t *testing.T) {
+	current := []OutboundBlock{
+		{Role: "user", Label: "User", Content: "hello"},
+		{Role: "tool_result", Label: "call_1", Content: "file contents"},
+	}
+
+	changed := DiffOutboundBlocks(nil, current)
+	if len(changed) != len(current) {
+		t.Fatalf("changed len: got %d, want %d", len(changed), len(current))
+	}
+}
+
+func TestDiffOutboundBlocks_UnchangedReturnsEmpty(t *testing.T) {
+	previous := []OutboundBlock{
+		{Role: "user", Label: "User", Content: "hello"},
+		{Role: "tool_result", Label: "call_1", Content: "file contents"},
+	}
+	current := []OutboundBlock{
+		{Role: "user", Label: "User", Content: "hello"},
+		{Role: "tool_result", Label: "call_1", Content: "file contents"},
+	}
+
+	changed := DiffOutboundBlocks(previous, current)
+	if len(changed) != 0 {
+		t.Fatalf("changed len: got %d, want 0", len(changed))
+	}
+}
+
+func TestDiffOutboundBlocks_MutationReturnsOnlyChangedBlock(t *testing.T) {
+	previous := []OutboundBlock{
+		{Role: "user", Label: "User", Content: "hello"},
+		{Role: "tool_result", Label: "call_1", Content: "old output"},
+	}
+	current := []OutboundBlock{
+		{Role: "user", Label: "User", Content: "hello"},
+		{Role: "tool_result", Label: "call_1", Content: "new output"},
+	}
+
+	changed := DiffOutboundBlocks(previous, current)
+	if len(changed) != 1 {
+		t.Fatalf("changed len: got %d, want 1", len(changed))
+	}
+	if changed[0].Role != "tool_result" || changed[0].Label != "call_1" || changed[0].Content != "new output" {
+		t.Fatalf("unexpected changed block: %+v", changed[0])
+	}
+}
+
+func TestDiffOutboundBlocks_AppendedHistoryReturnsOnlyNewBlock(t *testing.T) {
+	previous := []OutboundBlock{
+		{Role: "user", Label: "User", Content: "step 1"},
+	}
+	current := []OutboundBlock{
+		{Role: "user", Label: "User", Content: "step 1"},
+		{Role: "user", Label: "User", Content: "step 2"},
+	}
+
+	changed := DiffOutboundBlocks(previous, current)
+	if len(changed) != 1 {
+		t.Fatalf("changed len: got %d, want 1", len(changed))
+	}
+	if changed[0].Content != "step 2" {
+		t.Fatalf("unexpected changed content: %+v", changed[0])
+	}
+}
